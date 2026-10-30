@@ -1,0 +1,2 @@
+-[ ]: Add it to gnome store
+-[ ]: Add ToDo list on 1-click, and keep edit for double click

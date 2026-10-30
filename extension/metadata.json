@@ -1,0 +1,9 @@
+{
+  "name": "Clock Z99",
+  "description": "Always-on-top countdown for meetings. Toggle with Super+Q. Stays visible above fullscreen windows.",
+  "uuid": "clock-z99@mehdi-bahlaoui.github.io",
+  "shell-version": ["48", "49", "50"],
+  "version-name": "1.0.0",
+  "url": "https://github.com/Mehdi-Bahlaoui/clock_z99",
+  "settings-schema": "org.gnome.shell.extensions.clock-z99"
+}

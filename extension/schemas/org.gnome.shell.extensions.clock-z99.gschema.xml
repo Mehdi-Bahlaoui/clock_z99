@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.clock-z99" path="/org/gnome/shell/extensions/clock-z99/">
+    <key name="default-duration" type="i">
+      <range min="10" max="7200"/>
+      <default>600</default>
+      <summary>Default countdown duration</summary>
+      <description>Countdown length in seconds used on show and on reset. 600 = 10:00.</description>
+    </key>
+    <key name="toggle-hotkey" type="as">
+      <default><![CDATA[['<Super>q']]]></default>
+      <summary>Toggle hotkey</summary>
+      <description>Show/hide the island. Auto-starts on show.</description>
+    </key>
+    <key name="x-offset" type="i">
+      <range min="-1200" max="1200"/>
+      <default>0</default>
+      <summary>Horizontal offset</summary>
+      <description>Pixels from top-center. Set by dragging the island.</description>
+    </key>
+    <key name="y-offset" type="i">
+      <range min="-60" max="120"/>
+      <default>0</default>
+      <summary>Vertical offset</summary>
+      <description>Pixels from the top edge of the primary monitor. 0 docks the tab flush to the edge.</description>
+    </key>
+    <key name="visible" type="b">
+      <default>false</default>
+      <summary>Island visible</summary>
+      <description>Persisted visibility across shell restarts.</description>
+    </key>
+    <key name="font-size" type="i">
+      <range min="12" max="32"/>
+      <default>18</default>
+      <summary>Font size</summary>
+      <description>Countdown label font size in px.</description>
+    </key>
+    <key name="h-padding" type="i">
+      <range min="0" max="60"/>
+      <default>22</default>
+      <summary>Horizontal text padding</summary>
+      <description>Horizontal padding inside the pill, in px.</description>
+    </key>
+    <key name="top-padding" type="i">
+      <range min="0" max="40"/>
+      <default>6</default>
+      <summary>Top text padding</summary>
+      <description>Top padding above the countdown label, in px.</description>
+    </key>
+    <key name="bottom-padding" type="i">
+      <range min="0" max="40"/>
+      <default>10</default>
+      <summary>Bottom text padding</summary>
+      <description>Bottom padding below the countdown label, in px.</description>
+    </key>
+    <key name="bottom-radius" type="i">
+      <range min="0" max="30"/>
+      <default>22</default>
+      <summary>Bottom corner radius</summary>
+      <description>Convex rounding of the two free bottom corners, in px.</description>
+    </key>
+    <key name="top-fillet" type="i">
+      <range min="0" max="28"/>
+      <default>18</default>
+      <summary>Top fillet radius</summary>
+      <description>Concave scoop radius where the tab meets the screen edge, in px. 0 = square butt joint.</description>
+    </key>
+  </schema>
+</schemalist>

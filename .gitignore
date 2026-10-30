@@ -1,0 +1,3 @@
+dist/
+.venv/
+extension/schemas/gschemas.compiled

@@ -1,0 +1,27 @@
+/* clock_z99 — top-edge tab.
+ * The entire tab silhouette (concave top scoops + convex bottom corners)
+ * is drawn as a single continuous Cairo path on St.DrawingArea, so there
+ * is never a seam between pieces. */
+.clock-z99-island {
+    padding: 0;
+    background-color: transparent;
+}
+
+.clock-z99-pill {
+    background-color: transparent;
+    padding: 6px 22px 10px 22px;
+    spacing: 8px;
+}
+
+.clock-z99-label {
+    color: #ffffff;
+    font-family: monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.clock-z99-entry {
+    min-width: 110px;
+    font-family: monospace;
+    font-size: 18px;
+}
