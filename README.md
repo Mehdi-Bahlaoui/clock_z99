@@ -1,6 +1,12 @@
 # Clock Z99
 
-Always-on-top countdown for meetings. A black pill at the top-center of the screen that stays visible above fullscreen windows (where the top bar clock disappears).
+A gnome-extention, always-on-top timer.
+
+It is made for people that prefer to have fullscreen in everything (No top bar)
+
+## How it looks
+A black pill (Movable by drag) sticks at the top of the screen. (Design is customizable)
+Stays visible even while switching workspace.
 
 ## Usage
 
