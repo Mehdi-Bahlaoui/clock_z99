@@ -5,6 +5,8 @@
 // Double-click: quick-set via inline entry (MM:SS). Drag: move along top.
 
 import Cairo from 'cairo';
+import Gtk from 'gi://Gtk';
+import Pango from 'gi://Pango';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
@@ -12,6 +14,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as NoteStore from './modules/noteStore.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const DRAG_THRESHOLD = 6;
@@ -69,6 +72,11 @@ export default class ClockZ99Extension extends Extension {
         this._pill = null;
         this._label = null;
         this._entry = null;
+        this._row = null;
+        this._noteScroll = null;
+        this._noteText = null;
+        this._note = '';
+        this._noteSaveTimer = 0;
         this._tickId = 0;
         this._flashId = 0;
         this._flashOn = false;
@@ -90,6 +98,7 @@ export default class ClockZ99Extension extends Extension {
     enable() {
         this._settings = this.getSettings();
         this._remaining = this._settings.get_int('default-duration');
+        this._note = NoteStore.load();
 
         this._buildIsland();
 
@@ -133,6 +142,9 @@ export default class ClockZ99Extension extends Extension {
                     this._positionIsland();
                 } else if (key === 'x-offset' || key === 'y-offset') {
                     this._positionIsland();
+                } else if (key.startsWith('note-')) {
+                    this._applyPillStyle();
+                    this._repaintBg();
                 }
             });
 
@@ -175,6 +187,11 @@ export default class ClockZ99Extension extends Extension {
             this._pill = null;
             this._label = null;
             this._entry = null;
+        this._row = null;
+        this._noteScroll = null;
+        this._noteText = null;
+        this._note = '';
+        this._noteSaveTimer = 0;
         }
         this._settings = null;
     }
@@ -309,19 +326,28 @@ export default class ClockZ99Extension extends Extension {
         this._bg.connect('repaint', () => this._drawTabShape());
         this._island.add_child(this._bg);
 
+        // Vertical pill: top row (time) + notepad below.
         this._pill = new St.BoxLayout({
             style_class: 'clock-z99-pill',
+            vertical: true,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._island.add_child(this._pill);
+
+        this._row = new St.BoxLayout({
+            vertical: false,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._pill.add_child(this._row);
 
         this._label = new St.Label({
             style_class: 'clock-z99-label',
             text: formatTime(this._remaining),
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._pill.add_child(this._label);
+        this._row.add_child(this._label);
 
         this._entry = new St.Entry({
             style_class: 'clock-z99-entry',
@@ -330,7 +356,26 @@ export default class ClockZ99Extension extends Extension {
             can_focus: true,
         });
         this._entry.clutter_text.set_max_length(8);
-        this._pill.add_child(this._entry);
+        this._row.add_child(this._entry);
+
+        // Notepad (multi-line) inside a scroll view.
+        this._noteScroll = new St.ScrollView({
+            style_class: 'clock-z99-note-scroll',
+            visible: false,
+            hscrollbar_policy: Gtk.PolicyType.NEVER,
+            vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+        });
+        this._noteText = new Clutter.Text({
+            text: this._note || '',
+            editable: true,
+            selectable: true,
+            activatable: false,
+            line_wrap: true,
+            line_wrap_mode: Pango.WrapMode.WORD_CHAR,
+            x_expand: true,
+        });
+        this._noteScroll.add_child(this._noteText);
+        this._pill.add_child(this._noteScroll);
 
         this._applyPillStyle();
 
@@ -343,7 +388,6 @@ export default class ClockZ99Extension extends Extension {
             this._repaintBg();
         });
 
-        // click / drag / right-click / double-click
         this._island.connect('button-press-event', (a, e) => this._onPress(e));
         this._island.connect('motion-event', (a, e) => this._onMotion(e));
         this._island.connect('button-release-event', (a, e) => this._onRelease(e));
@@ -352,11 +396,34 @@ export default class ClockZ99Extension extends Extension {
         this._entry.clutter_text.connect('activate', () => this._commitEditor());
         this._entry.clutter_text.connect('key-press-event', (a, e) => {
             if (e.get_key_symbol() === Clutter.KEY_Escape) {
-                this._closeEditor();
+                this._closeEditor(true, true);
                 return Clutter.EVENT_STOP;
             }
             return Clutter.EVENT_PROPAGATE;
         });
+
+        this._noteText.connect('text-changed', () => this._scheduleNoteSave());
+        this._noteText.connect('key-press-event', (a, e) => {
+            const sym = e.get_key_symbol();
+            const state = e.get_state();
+            if (sym === Clutter.KEY_Escape) {
+                this._closeEditor(true, true);
+                return Clutter.EVENT_STOP;
+            }
+            if (sym === Clutter.KEY_Return || sym === Clutter.KEY_KP_Enter) {
+                if (state & Clutter.ModifierType.CONTROL_MASK) {
+                    this._commitEditor();
+                    return Clutter.EVENT_STOP;
+                }
+                const pos = this._noteText.get_cursor_position();
+                this._noteText.insert_text('\n', pos);
+                this._noteText.set_cursor_position(pos + 1);
+                return Clutter.EVENT_STOP;
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
+
+        console.log('[clock_z99] island built');
     }
 
     // Reserve horizontal space (F + h-padding) on each side so the label sits
@@ -373,6 +440,16 @@ export default class ClockZ99Extension extends Extension {
         this._pill.style = `padding: ${top}px ${padX}px ${bottom}px ${padX}px;`;
         const px = this._settings.get_int('font-size');
         this._label.style = `font-size: ${px}px;`;
+
+        if (this._noteScroll && this._noteText) {
+            const nFont = this._settings.get_int('note-font-size');
+            const nMinW = this._settings.get_int('note-min-width');
+            const nMinH = this._settings.get_int('note-min-height');
+            const nMaxH = this._settings.get_int('note-max-height');
+            const nPad = this._settings.get_int('note-padding');
+            this._noteScroll.style = `min-width: ${nMinW}px; min-height: ${nMinH}px; max-height: ${nMaxH}px; margin-top: 6px;`;
+            this._noteText.style = `color: #ffffff; font-family: sans-serif; font-size: ${nFont}px; padding: ${nPad}px;`;
+        }
     }
 
     _drawTabShape() {
@@ -545,14 +622,27 @@ export default class ClockZ99Extension extends Extension {
         this._label.visible = false;
         this._entry.visible = true;
         this._entry.set_text(formatTime(this._remaining));
+        const noteEnabled = !this._settings || this._settings.get_boolean('note-enabled');
+        if (this._noteScroll)
+            this._noteScroll.visible = noteEnabled;
+        if (this._noteText && noteEnabled) {
+            this._noteText.set_text(this._note || '');
+        }
+        this._applyPillStyle();
         this._positionIsland();
-        global.stage.set_key_focus(this._entry);
+        if (noteEnabled && this._noteText)
+            global.stage.set_key_focus(this._noteText);
+        else
+            global.stage.set_key_focus(this._entry);
         this._entry.clutter_text.set_selection(0, -1);
     }
 
     _commitEditor() {
         const secs = parseTimeString(this._entry.get_text());
-        this._closeEditor();
+        const note = this._noteText ? this._noteText.get_text() : this._note;
+        this._note = note;
+        NoteStore.save(note);
+        this._closeEditor(false, false);
         if (secs !== null && secs >= 0 && secs <= 12 * 3600) {
             this._remaining = secs;
             this._settings.set_int('default-duration', secs);
@@ -563,16 +653,49 @@ export default class ClockZ99Extension extends Extension {
         this.start();
     }
 
-    _closeEditor() {
+    _closeEditor(saveNote = true, applyTime = false) {
         if (!this._editing && !this._entry)
             return;
+        if (saveNote && this._noteText) {
+            this._note = this._noteText.get_text();
+            NoteStore.save(this._note);
+            this._cancelNoteSaveTimer();
+        }
+        if (applyTime && this._entry) {
+            const secs = parseTimeString(this._entry.get_text());
+            if (secs !== null && secs >= 0 && secs <= 12 * 3600) {
+                this._remaining = secs;
+                this._settings.set_int('default-duration', secs);
+            }
+        }
         this._editing = false;
         if (this._entry)
             this._entry.visible = false;
+        if (this._noteScroll)
+            this._noteScroll.visible = false;
         if (this._label)
             this._label.visible = true;
         if (global.stage && this._entry && global.stage.get_key_focus() === this._entry)
             global.stage.set_key_focus(null);
+        if (global.stage && this._noteText && global.stage.get_key_focus() === this._noteText)
+            global.stage.set_key_focus(null);
+    }
+
+    _scheduleNoteSave() {
+        this._cancelNoteSaveTimer();
+        this._noteSaveTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
+            this._noteSaveTimer = 0;
+            if (this._noteText)
+                NoteStore.save(this._noteText.get_text());
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _cancelNoteSaveTimer() {
+        if (this._noteSaveTimer) {
+            GLib.source_remove(this._noteSaveTimer);
+            this._noteSaveTimer = 0;
+        }
     }
 
     // ---- timer core ----

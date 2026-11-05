@@ -25,3 +25,16 @@
     font-family: monospace;
     font-size: 18px;
 }
+
+.clock-z99-note-scroll {
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.clock-z99-note {
+    color: #ffffff;
+    font-family: sans-serif;
+    padding: 4px;
+    caret-color: #ffffff;
+    selection-color: #ffffff;
+}

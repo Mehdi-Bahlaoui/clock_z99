@@ -65,5 +65,47 @@
       <summary>Top fillet radius</summary>
       <description>Concave scoop radius where the tab meets the screen edge, in px. 0 = square butt joint.</description>
     </key>
+
+
+    <key name="note-enabled" type="b">
+      <default>true</default>
+      <summary>Show notepad on double-click</summary>
+      <description>Whether the multi-line notepad is shown when editing the timer.</description>
+    </key>
+    <key name="note-font-size" type="i">
+      <range min="10" max="24"/>
+      <default>13</default>
+      <summary>Notepad font size</summary>
+      <description>Font size of the notepad text in px.</description>
+    </key>
+    <key name="note-min-width" type="i">
+      <range min="120" max="480"/>
+      <default>220</default>
+      <summary>Notepad minimum width</summary>
+      <description>Minimum width of the notepad area in px.</description>
+    </key>
+    <key name="note-min-height" type="i">
+      <range min="40" max="160"/>
+      <default>56</default>
+      <summary>Notepad minimum height</summary>
+      <description>Minimum height of the notepad area in px.</description>
+    </key>
+    <key name="note-max-height" type="i">
+      <range min="60" max="280"/>
+      <default>120</default>
+      <summary>Notepad maximum height</summary>
+      <description>Maximum height of the notepad area before scrolling, in px.</description>
+    </key>
+    <key name="note-padding" type="i">
+      <range min="0" max="20"/>
+      <default>6</default>
+      <summary>Notepad padding</summary>
+      <description>Inner padding of the notepad area in px.</description>
+    </key>
+    <key name="note-placeholder" type="s">
+      <default>'Write a note…'</default>
+      <summary>Notepad placeholder</summary>
+      <description>Hint text shown in the notepad when empty.</description>
+    </key>
   </schema>
 </schemalist>

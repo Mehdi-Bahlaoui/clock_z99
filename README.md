@@ -16,7 +16,7 @@ Stays visible even while switching workspace.
 | Click | Pause / resume |
 | Scroll | ±1 min (`Shift`+scroll: ±10 s) |
 | Right-click | Reset to default + autostart |
-| Double-click | Type a new time (`MM:SS`, `10` = 10 min) |
+| Double-click | Type a new time (`MM:SS`, `10` = 10 min) **and** a multi-line note |
 | Drag | Move along the top (position is saved) |
 
 At `00:00` the island flashes red and stays visible until hidden.

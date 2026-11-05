@@ -137,6 +137,86 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
         padGroup.add(bottomPadRow);
         page.add(padGroup);
 
+
+
+        const noteGroup = new Adw.PreferencesGroup({
+            title: 'Notepad',
+            description: 'Multi-line note shown on double-click',
+        });
+
+        const noteEnabledRow = new Adw.SwitchRow({
+            title: 'Enable notepad',
+            subtitle: 'Show the note area when editing the timer',
+        });
+        settings.bind('note-enabled', noteEnabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteEnabledRow);
+
+        const noteFontRow = new Adw.SpinRow({
+            title: 'Notepad font size',
+            adjustment: new Gtk.Adjustment({
+                lower: 10, upper: 24, step_increment: 1, page_increment: 2,
+                value: settings.get_int('note-font-size'),
+            }),
+        });
+        settings.bind('note-font-size', noteFontRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteFontRow);
+
+        const noteMinWRow = new Adw.SpinRow({
+            title: 'Notepad min width',
+            subtitle: 'Pixels',
+            adjustment: new Gtk.Adjustment({
+                lower: 120, upper: 480, step_increment: 10, page_increment: 40,
+                value: settings.get_int('note-min-width'),
+            }),
+        });
+        settings.bind('note-min-width', noteMinWRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteMinWRow);
+
+        const noteMinHRow = new Adw.SpinRow({
+            title: 'Notepad min height',
+            subtitle: 'Pixels',
+            adjustment: new Gtk.Adjustment({
+                lower: 40, upper: 160, step_increment: 4, page_increment: 16,
+                value: settings.get_int('note-min-height'),
+            }),
+        });
+        settings.bind('note-min-height', noteMinHRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteMinHRow);
+
+        const noteMaxHRow = new Adw.SpinRow({
+            title: 'Notepad max height',
+            subtitle: 'Pixels before scrolling',
+            adjustment: new Gtk.Adjustment({
+                lower: 60, upper: 280, step_increment: 4, page_increment: 16,
+                value: settings.get_int('note-max-height'),
+            }),
+        });
+        settings.bind('note-max-height', noteMaxHRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteMaxHRow);
+
+        const notePadRow = new Adw.SpinRow({
+            title: 'Notepad padding',
+            subtitle: 'Pixels',
+            adjustment: new Gtk.Adjustment({
+                lower: 0, upper: 20, step_increment: 1, page_increment: 4,
+                value: settings.get_int('note-padding'),
+            }),
+        });
+        settings.bind('note-padding', notePadRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(notePadRow);
+
+        const notePlaceholderRow = new Adw.EntryRow({
+            title: 'Notepad placeholder',
+            text: settings.get_string('note-placeholder'),
+        });
+        notePlaceholderRow.connect('apply', () => {
+            const t = notePlaceholderRow.get_text().trim() || 'Write a note…';
+            settings.set_string('note-placeholder', t);
+        });
+        noteGroup.add(notePlaceholderRow);
+
+        page.add(noteGroup);
+
         const uiGroup = new Adw.PreferencesGroup({ title: 'Appearance & Hotkey' });
 
         const bottomRow = new Adw.SpinRow({
