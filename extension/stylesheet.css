@@ -1,8 +1,13 @@
 /* clock_z99 — top-edge tab.
- * The entire tab silhouette (concave top scoops + convex bottom corners)
- * is drawn as a single continuous Cairo path on St.DrawingArea, so there
- * is never a seam between pieces. */
+ * The top tab silhouette (concave top scoops + convex bottom corners)
+ * is drawn as a continuous Cairo path on St.DrawingArea. When double-clicked,
+ * a seamless dark notepad card extends directly below the tab body. */
 .clock-z99-island {
+    padding: 0;
+    background-color: transparent;
+}
+
+.clock-z99-top-tab {
     padding: 0;
     background-color: transparent;
 }
@@ -10,7 +15,7 @@
 .clock-z99-pill {
     background-color: transparent;
     padding: 6px 22px 10px 22px;
-    spacing: 8px;
+    spacing: 0;
 }
 
 .clock-z99-label {
@@ -23,18 +28,26 @@
 .clock-z99-entry {
     min-width: 110px;
     font-family: monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
     font-size: 18px;
 }
 
 .clock-z99-note-scroll {
-    border-radius: 6px;
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
 }
 
 .clock-z99-note {
-    color: #ffffff;
-    font-family: sans-serif;
-    padding: 4px;
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    color: #e6e6e6;
+    font-family: monospace;
+    font-weight: 600;
     caret-color: #ffffff;
-    selection-color: #ffffff;
+    selection-background-color: rgba(255, 255, 255, 0.25);
+    selected-color: #ffffff;
 }

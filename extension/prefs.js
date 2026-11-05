@@ -151,10 +151,17 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
         settings.bind('note-enabled', noteEnabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         noteGroup.add(noteEnabledRow);
 
+        const noteBulletsRow = new Adw.SwitchRow({
+            title: 'Auto bullet list (• )',
+            subtitle: 'Start lines with a bullet point when pressing Enter',
+        });
+        settings.bind('note-bullets', noteBulletsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        noteGroup.add(noteBulletsRow);
+
         const noteFontRow = new Adw.SpinRow({
             title: 'Notepad font size',
             adjustment: new Gtk.Adjustment({
-                lower: 10, upper: 24, step_increment: 1, page_increment: 2,
+                lower: 10, upper: 28, step_increment: 1, page_increment: 2,
                 value: settings.get_int('note-font-size'),
             }),
         });
@@ -165,7 +172,7 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
             title: 'Notepad min width',
             subtitle: 'Pixels',
             adjustment: new Gtk.Adjustment({
-                lower: 120, upper: 480, step_increment: 10, page_increment: 40,
+                lower: 100, upper: 600, step_increment: 10, page_increment: 40,
                 value: settings.get_int('note-min-width'),
             }),
         });
@@ -176,7 +183,7 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
             title: 'Notepad min height',
             subtitle: 'Pixels',
             adjustment: new Gtk.Adjustment({
-                lower: 40, upper: 160, step_increment: 4, page_increment: 16,
+                lower: 40, upper: 500, step_increment: 4, page_increment: 16,
                 value: settings.get_int('note-min-height'),
             }),
         });
@@ -187,7 +194,7 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
             title: 'Notepad max height',
             subtitle: 'Pixels before scrolling',
             adjustment: new Gtk.Adjustment({
-                lower: 60, upper: 280, step_increment: 4, page_increment: 16,
+                lower: 60, upper: 600, step_increment: 4, page_increment: 16,
                 value: settings.get_int('note-max-height'),
             }),
         });
@@ -198,7 +205,7 @@ export default class ClockZ99Preferences extends ExtensionPreferences {
             title: 'Notepad padding',
             subtitle: 'Pixels',
             adjustment: new Gtk.Adjustment({
-                lower: 0, upper: 20, step_increment: 1, page_increment: 4,
+                lower: 0, upper: 32, step_increment: 1, page_increment: 4,
                 value: settings.get_int('note-padding'),
             }),
         });

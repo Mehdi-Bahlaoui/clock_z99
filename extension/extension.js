@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// clock_z99 — always-on-top top-edge tab countdown.
+// clock_z99 — always-on-top top-edge tab countdown + inline notepad.
 // Toggle: Super+Q (configurable). Click: pause/resume.
 // Scroll: +/-1min (Shift+scroll: +/-10s). Right-click: reset + autostart.
-// Double-click: quick-set via inline entry (MM:SS). Drag: move along top.
+// Double-click: quick-set via inline entry (MM:SS) + persistent notepad.
+// Drag: move along top.
 
 import Cairo from 'cairo';
-import Gtk from 'gi://Gtk';
-import Pango from 'gi://Pango';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
+import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
-import * as NoteStore from './modules/noteStore.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as NoteStore from './modules/noteStore.js';
 
 const DRAG_THRESHOLD = 6;
+const BULLET_PREFIX = '• ';
 
 // Wall-clock based deadline. Uses GLib.get_real_time() so the countdown
 // keeps running across suspend; manual/NTP clock changes can shift it.
-
 
 function formatTime(totalSeconds) {
     totalSeconds = Math.max(0, Math.ceil(totalSeconds));
@@ -63,17 +63,28 @@ function parseTimeString(text) {
     return null;
 }
 
+function normalizeNoteForSave(text) {
+    if (!text)
+        return '';
+    if (text.trim() === '•')
+        return '';
+    return text;
+}
+
 export default class ClockZ99Extension extends Extension {
     constructor(metadata) {
         super(metadata);
         this._settings = null;
         this._island = null;
+        this._content = null;
+        this._topTab = null;
         this._bg = null;
         this._pill = null;
         this._label = null;
         this._entry = null;
-        this._row = null;
         this._noteScroll = null;
+        this._noteBox = null;
+        this._noteEntry = null;
         this._noteText = null;
         this._note = '';
         this._noteSaveTimer = 0;
@@ -109,7 +120,7 @@ export default class ClockZ99Extension extends Extension {
         // fullscreen windows". Shell's LayoutManager instead HIDES tracked
         // actors whenever a fullscreen window is on the same monitor.
         // Plain chrome already paints above fullscreen windows, which stay
-        // in window_group. (Same pattern as ../zoomer/extension/modules/spotlight.js:264.)
+        // in window_group.
         Main.layoutManager.addChrome(this._island, {
             affectsStruts: false,
             trackFullscreen: false,
@@ -145,6 +156,7 @@ export default class ClockZ99Extension extends Extension {
                 } else if (key.startsWith('note-')) {
                     this._applyPillStyle();
                     this._repaintBg();
+                    this._positionIsland();
                 }
             });
 
@@ -172,6 +184,7 @@ export default class ClockZ99Extension extends Extension {
         this._stopFlash();
         this._restoreUnredirect();
         this._closeEditor();
+        this._cancelNoteSaveTimer();
 
         if (this._island) {
             try {
@@ -183,15 +196,15 @@ export default class ClockZ99Extension extends Extension {
                 this._island.get_parent().remove_child(this._island);
             this._island.destroy();
             this._island = null;
+            this._topTab = null;
             this._bg = null;
             this._pill = null;
             this._label = null;
             this._entry = null;
-        this._row = null;
-        this._noteScroll = null;
-        this._noteText = null;
-        this._note = '';
-        this._noteSaveTimer = 0;
+            this._noteScroll = null;
+            this._noteBox = null;
+            this._noteText = null;
+            this._note = '';
         }
         this._settings = null;
     }
@@ -215,11 +228,8 @@ export default class ClockZ99Extension extends Extension {
         this._positionIsland();
         this._raiseAbovePanel();
         this._settings.set_boolean('visible', true);
-        // A fullscreen window can be direct-scanned-out by Mutter: its
-        // buffer is presented straight to the display, bypassing the
-        // stage, so the island would sit "under" the app. Disable
-        // unredirect while the island is up - exactly what Shell's own
-        // OSD does. (Same pattern as zoomer spotlight.js:274.)
+        // Disable unredirect while the island is up so fullscreen windows
+        // cannot direct-scanout underneath the stage.
         if (!this._unredirectDisabled) {
             global.compositor.disable_unredirect();
             this._unredirectDisabled = true;
@@ -252,10 +262,6 @@ export default class ClockZ99Extension extends Extension {
         }
     }
 
-    // The top bar lives in layoutManager.panelBox. Nothing guarantees our
-    // island paints above that container, so pin it on top explicitly and
-    // re-assert after show() / monitor changes (overview transitions can
-    // reorder chrome). Best effort: never throw from here.
     _raiseAbovePanel() {
         if (!this._island)
             return;
@@ -305,17 +311,17 @@ export default class ClockZ99Extension extends Extension {
     }
 
     // ---- island UI ----
-    // Single unified Cairo silhouette on St.DrawingArea (_bg) + transparent
-    // content box (_pill) stacked via Clutter.BinLayout. Because the top
-    // concave fillets, vertical sides, and bottom convex corners are drawn
-    // in one closed Cairo path, there can never be a seam between pieces.
+    // _island is a vertical BoxLayout:
+    //   1. _topTab: BinLayout stacking the Cairo top-edge silhouette (_bg) and
+    //      the countdown content (_pill with _label / _entry).
+    //   2. _noteScroll: Seamless dark notepad card aligned to the left body
+    //      edge of _topTab (x = F) and extending directly below _topTab when
+    //      double-clicked.
     _buildIsland() {
         this._island = new St.Widget({
             style_class: 'clock-z99-island',
             layout_manager: new Clutter.BinLayout(),
-            reactive: true,
-            track_hover: true,
-            can_focus: true,
+            reactive: false,
             visible: false,
         });
 
@@ -326,59 +332,95 @@ export default class ClockZ99Extension extends Extension {
         this._bg.connect('repaint', () => this._drawTabShape());
         this._island.add_child(this._bg);
 
-        // Vertical pill: top row (time) + notepad below.
+        this._content = new St.BoxLayout({
+            vertical: true,
+            x_align: Clutter.ActorAlign.START,
+            y_align: Clutter.ActorAlign.START,
+        });
+        this._island.add_child(this._content);
+
+        this._topTab = new St.Widget({
+            style_class: 'clock-z99-top-tab',
+            layout_manager: new Clutter.BinLayout(),
+            x_align: Clutter.ActorAlign.START,
+            reactive: true,
+            track_hover: true,
+            can_focus: true,
+        });
+        this._content.add_child(this._topTab);
+
         this._pill = new St.BoxLayout({
             style_class: 'clock-z99-pill',
-            vertical: true,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._island.add_child(this._pill);
-
-        this._row = new St.BoxLayout({
-            vertical: false,
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-        });
-        this._pill.add_child(this._row);
+        this._topTab.add_child(this._pill);
 
         this._label = new St.Label({
             style_class: 'clock-z99-label',
             text: formatTime(this._remaining),
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._row.add_child(this._label);
+        this._pill.add_child(this._label);
 
         this._entry = new St.Entry({
             style_class: 'clock-z99-entry',
             hint_text: 'MM:SS',
             visible: false,
             can_focus: true,
+            y_align: Clutter.ActorAlign.CENTER,
         });
         this._entry.clutter_text.set_max_length(8);
-        this._row.add_child(this._entry);
+        this._pill.add_child(this._entry);
 
-        // Notepad (multi-line) inside a scroll view.
+        // Seamless notepad section directly beneath the top tab.
         this._noteScroll = new St.ScrollView({
             style_class: 'clock-z99-note-scroll',
             visible: false,
-            hscrollbar_policy: Gtk.PolicyType.NEVER,
-            vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+            reactive: true,
+            x_align: Clutter.ActorAlign.START,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
         });
-        this._noteText = new Clutter.Text({
-            text: this._note || '',
-            editable: true,
-            selectable: true,
-            activatable: false,
-            line_wrap: true,
-            line_wrap_mode: Pango.WrapMode.WORD_CHAR,
+
+        this._noteBox = new St.BoxLayout({
+            vertical: true,
             x_expand: true,
+            y_expand: true,
+            reactive: true,
         });
-        this._noteScroll.add_child(this._noteText);
-        this._pill.add_child(this._noteScroll);
+
+        this._noteEntry = new St.Entry({
+            style_class: 'clock-z99-note',
+            x_expand: true,
+            y_expand: true,
+            can_focus: true,
+            y_align: Clutter.ActorAlign.START,
+        });
+        this._noteText = this._noteEntry.clutter_text;
+        this._noteText.set_text(this._note || '');
+        this._noteText.single_line_mode = false;
+        this._noteText.activatable = false;
+        this._noteText.line_wrap = true;
+        this._noteText.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        this._noteText.x_expand = true;
+        this._noteText.y_expand = true;
+        this._noteText.y_align = Clutter.ActorAlign.START;
+
+        this._noteBox.add_child(this._noteEntry);
+        this._noteScroll.add_child(this._noteBox);
+        this._content.add_child(this._noteScroll);
 
         this._applyPillStyle();
 
+        this._topTab.connect('notify::width', () => {
+            if (!this._dragging)
+                this._positionIsland();
+            this._repaintBg();
+        });
+        this._topTab.connect('notify::height', () => {
+            this._repaintBg();
+        });
         this._island.connect('notify::width', () => {
             if (!this._dragging)
                 this._positionIsland();
@@ -388,42 +430,104 @@ export default class ClockZ99Extension extends Extension {
             this._repaintBg();
         });
 
-        this._island.connect('button-press-event', (a, e) => this._onPress(e));
-        this._island.connect('motion-event', (a, e) => this._onMotion(e));
-        this._island.connect('button-release-event', (a, e) => this._onRelease(e));
-        this._island.connect('scroll-event', (a, e) => this._onScroll(e));
+        // click / drag / right-click / double-click on the top tab
+        this._topTab.connect('button-press-event', (a, e) => this._onPress(e));
+        this._topTab.connect('motion-event', (a, e) => this._onMotion(e));
+        this._topTab.connect('button-release-event', (a, e) => this._onRelease(e));
+        this._topTab.connect('scroll-event', (a, e) => this._onScroll(e));
+
+        // Clicking anywhere in the notepad area focuses the text and places caret
+        this._noteScroll.connect('button-press-event', (actor, event) => {
+            if (event.get_button() !== 1)
+                return Clutter.EVENT_STOP;
+            global.stage.set_key_focus(this._noteText);
+            if (event.get_source() !== this._noteText) {
+                const len = (this._noteText.get_text() || '').length;
+                this._noteText.set_cursor_position(len);
+                this._noteText.set_selection(len, len);
+            }
+            return Clutter.EVENT_STOP;
+        });
+        this._noteScroll.connect('button-release-event', () => Clutter.EVENT_STOP);
 
         this._entry.clutter_text.connect('activate', () => this._commitEditor());
         this._entry.clutter_text.connect('key-press-event', (a, e) => {
-            if (e.get_key_symbol() === Clutter.KEY_Escape) {
+            const sym = e.get_key_symbol();
+            if (sym === Clutter.KEY_Escape) {
                 this._closeEditor(true, true);
+                this._render();
+                return Clutter.EVENT_STOP;
+            }
+            if ((sym === Clutter.KEY_Tab || sym === Clutter.KEY_ISO_Left_Tab ||
+                 sym === Clutter.KEY_Down) &&
+                this._noteScroll && this._noteScroll.visible) {
+                global.stage.set_key_focus(this._noteText);
+                const len = (this._noteText.get_text() || '').length;
+                this._noteText.set_cursor_position(len);
+                this._noteText.set_selection(len, len);
                 return Clutter.EVENT_STOP;
             }
             return Clutter.EVENT_PROPAGATE;
         });
 
         this._noteText.connect('text-changed', () => this._scheduleNoteSave());
-        this._noteText.connect('key-press-event', (a, e) => {
-            const sym = e.get_key_symbol();
-            const state = e.get_state();
-            if (sym === Clutter.KEY_Escape) {
-                this._closeEditor(true, true);
+        this._noteText.connect('key-press-event', (a, e) => this._onNoteKeyPress(e));
+    }
+
+    _onNoteKeyPress(event) {
+        const sym = event.get_key_symbol();
+        const state = event.get_state();
+
+        if (sym === Clutter.KEY_Escape) {
+            this._closeEditor(true, true);
+            this._render();
+            return Clutter.EVENT_STOP;
+        }
+
+        if (sym === Clutter.KEY_Tab || sym === Clutter.KEY_ISO_Left_Tab) {
+            if (this._entry && this._entry.visible) {
+                global.stage.set_key_focus(this._entry);
+                this._entry.clutter_text.set_selection(0, -1);
                 return Clutter.EVENT_STOP;
             }
-            if (sym === Clutter.KEY_Return || sym === Clutter.KEY_KP_Enter) {
-                if (state & Clutter.ModifierType.CONTROL_MASK) {
-                    this._commitEditor();
+        }
+
+        const bullets = !this._settings || this._settings.get_boolean('note-bullets');
+
+        if (sym === Clutter.KEY_Return || sym === Clutter.KEY_KP_Enter) {
+            if (state & Clutter.ModifierType.CONTROL_MASK) {
+                this._commitEditor();
+                return Clutter.EVENT_STOP;
+            }
+            this._noteText.delete_selection();
+            const pos = this._noteText.get_cursor_position();
+            const text = this._noteText.get_text() || '';
+            const idx = pos < 0 ? text.length : pos;
+            const insertStr = bullets ? `\n${BULLET_PREFIX}` : '\n';
+            this._noteText.insert_text(insertStr, idx);
+            this._noteText.set_cursor_position(idx + insertStr.length);
+            return Clutter.EVENT_STOP;
+        }
+
+        // Smart backspace on an empty bullet line ("\n• ") removes the bullet line cleanly
+        if (sym === Clutter.KEY_BackSpace && bullets) {
+            const text = this._noteText.get_text() || '';
+            const pos = this._noteText.get_cursor_position();
+            const selBound = this._noteText.get_selection_bound();
+            const idx = pos < 0 ? text.length : pos;
+            const selIdx = selBound < 0 ? text.length : selBound;
+            if (idx === selIdx) {
+                const nlBullet = `\n${BULLET_PREFIX}`;
+                if (idx >= nlBullet.length &&
+                    text.slice(idx - nlBullet.length, idx) === nlBullet) {
+                    this._noteText.delete_text(idx - nlBullet.length, idx);
+                    this._noteText.set_cursor_position(idx - nlBullet.length);
                     return Clutter.EVENT_STOP;
                 }
-                const pos = this._noteText.get_cursor_position();
-                this._noteText.insert_text('\n', pos);
-                this._noteText.set_cursor_position(pos + 1);
-                return Clutter.EVENT_STOP;
             }
-            return Clutter.EVENT_PROPAGATE;
-        });
+        }
 
-        console.log('[clock_z99] island built');
+        return Clutter.EVENT_PROPAGATE;
     }
 
     // Reserve horizontal space (F + h-padding) on each side so the label sits
@@ -440,15 +544,21 @@ export default class ClockZ99Extension extends Extension {
         this._pill.style = `padding: ${top}px ${padX}px ${bottom}px ${padX}px;`;
         const px = this._settings.get_int('font-size');
         this._label.style = `font-size: ${px}px;`;
+        if (this._entry)
+            this._entry.style = `font-size: ${px}px;`;
 
-        if (this._noteScroll && this._noteText) {
+        if (this._noteScroll && this._noteBox && this._noteEntry) {
             const nFont = this._settings.get_int('note-font-size');
             const nMinW = this._settings.get_int('note-min-width');
             const nMinH = this._settings.get_int('note-min-height');
             const nMaxH = this._settings.get_int('note-max-height');
             const nPad = this._settings.get_int('note-padding');
-            this._noteScroll.style = `min-width: ${nMinW}px; min-height: ${nMinH}px; max-height: ${nMaxH}px; margin-top: 6px;`;
-            this._noteText.style = `color: #ffffff; font-family: sans-serif; font-size: ${nFont}px; padding: ${nPad}px;`;
+            this._noteScroll.style =
+                `margin-left: ${F}px; margin-top: 0px; ` +
+                `min-width: ${nMinW}px; min-height: ${nMinH}px; max-height: ${nMaxH}px;`;
+            this._noteBox.style = `padding: ${nPad}px;`;
+            this._noteEntry.style =
+                `padding: 0; color: #e6e6e6; font-family: monospace; font-weight: 600; font-size: ${nFont}px;`;
         }
     }
 
@@ -461,35 +571,72 @@ export default class ClockZ99Extension extends Extension {
         cr.paint();
 
         if (W > 0 && H > 0) {
-            let F = Math.max(0, this._settings.get_int('top-fillet'));
-            let R = Math.max(0, this._settings.get_int('bottom-radius'));
-            // If F + R exceeds H, scale proportionally so the concave top arc
-            // flows directly into the convex bottom arc as a smooth S-curve.
-            if (F + R > H && (F + R) > 0) {
-                const s = H / (F + R);
-                F *= s;
-                R *= s;
-            }
-            R = Math.min(R, Math.max(0, (W - 2 * F) / 2));
+            const noteVisible = Boolean(this._editing && this._noteScroll && this._noteScroll.visible);
+            const rawF = Math.max(0, this._settings.get_int('top-fillet'));
+            const rawR = Math.max(0, this._settings.get_int('bottom-radius'));
+            const topW = (this._topTab && this._topTab.width) ? this._topTab.width : W;
+            const topH = (this._topTab && this._topTab.height) ? this._topTab.height : H;
+
+            let F = rawF;
+            let R = rawR;
+            if (F > topH)
+                F = topH;
+            if (F + R > topH)
+                R = Math.max(0, topH - F);
+            R = Math.min(R, Math.max(0, (topW - 2 * F) / 2));
 
             cr.setOperator(Cairo.Operator.OVER);
+
+            // 1. Notepad card seamlessly docked below the top tab body
+            //    (drawn first and tucked up to topH - R between the pill walls
+            //     so zero desktop background ever peeks through the joint).
+            if (noteVisible && H > topH && W > F) {
+                const x1 = F;
+                const xMid = Math.max(x1, topW - F);
+                const yBridge = Math.max(F, topH - R);
+                const y1 = topH;
+                const x2 = W;
+                const y2 = H;
+                const nr = Math.min(6, Math.max(0, (x2 - xMid) / 2), Math.max(0, (y2 - y1) / 2));
+
+                cr.setSourceRGBA(0.08, 0.08, 0.08, 1); // #141414
+                cr.newPath();
+                cr.moveTo(x1, yBridge);
+                cr.lineTo(xMid, yBridge);
+                cr.lineTo(xMid, y1);
+                if (x2 - xMid > nr) {
+                    cr.lineTo(x2 - nr, y1);
+                    cr.arc(x2 - nr, y1 + nr, nr, -Math.PI / 2, 0);
+                } else {
+                    cr.lineTo(x2, y1);
+                }
+                cr.lineTo(x2, y2 - nr);
+                cr.arc(x2 - nr, y2 - nr, nr, 0, Math.PI / 2);
+                cr.lineTo(x1 + nr, y2);
+                cr.arc(x1 + nr, y2 - nr, nr, Math.PI / 2, Math.PI);
+                cr.closePath();
+                cr.fill();
+            }
+
+            // 2. Top tab silhouette (concave top fillets + convex bottom corners)
             if (this._finished && this._flashOn)
                 cr.setSourceRGBA(0.753, 0.110, 0.157, 1); // #c01c28
             else
                 cr.setSourceRGBA(0, 0, 0, 1);
 
+            cr.newPath();
             cr.moveTo(0, 0);
-            cr.lineTo(W, 0);
+            cr.lineTo(topW, 0);
             if (F > 0)
-                cr.arcNegative(W, F, F, -Math.PI / 2, -Math.PI);
-            if (H - R > F)
-                cr.lineTo(W - F, H - R);
+                cr.arcNegative(topW, F, F, -Math.PI / 2, -Math.PI);
+            if (topH - R > F)
+                cr.lineTo(topW - F, topH - R);
             if (R > 0)
-                cr.arc(W - F - R, H - R, R, 0, Math.PI / 2);
-            cr.lineTo(F + R, H);
+                cr.arc(topW - F - R, topH - R, R, 0, Math.PI / 2);
+            cr.lineTo(F + R, topH);
             if (R > 0)
-                cr.arc(F + R, H - R, R, Math.PI / 2, Math.PI);
-            if (H - R > F)
+                cr.arc(F + R, topH - R, R, Math.PI / 2, Math.PI);
+            if (topH - R > F)
                 cr.lineTo(F, F);
             if (F > 0)
                 cr.arcNegative(0, F, F, 0, -Math.PI / 2);
@@ -512,11 +659,14 @@ export default class ClockZ99Extension extends Extension {
             return;
         const xOff = this._settings.get_int('x-offset');
         const yOff = this._settings.get_int('y-offset');
-        const w = this._island.width || 140;
-        const x = Math.round(monitor.x + (monitor.width - w) / 2 + xOff);
+        const tabW = (this._topTab && this._topTab.width)
+            ? this._topTab.width
+            : (this._island.width || 140);
+        const totalW = Math.max(tabW, this._island.width || tabW);
+        const x = Math.round(monitor.x + (monitor.width - tabW) / 2 + xOff);
         const y = Math.round(monitor.y + yOff);
         this._island.set_position(
-            Math.max(monitor.x, Math.min(x, monitor.x + monitor.width - w)),
+            Math.max(monitor.x, Math.min(x, monitor.x + monitor.width - totalW)),
             y,
         );
     }
@@ -527,6 +677,8 @@ export default class ClockZ99Extension extends Extension {
         if (button === 3) // right-click handled on release
             return Clutter.EVENT_STOP;
         if (button !== 1)
+            return Clutter.EVENT_PROPAGATE;
+        if (this._editing && this._entry && this._entry.contains(event.get_source()))
             return Clutter.EVENT_PROPAGATE;
         const [x, y] = event.get_coords();
         this._pressX = x;
@@ -539,14 +691,16 @@ export default class ClockZ99Extension extends Extension {
     _onMotion(event) {
         if (!event.get_state() || !(event.get_state() & Clutter.ModifierType.BUTTON1_MASK))
             return Clutter.EVENT_PROPAGATE;
+        if (this._editing && this._entry && this._entry.contains(event.get_source()))
+            return Clutter.EVENT_PROPAGATE;
         const [x] = event.get_coords();
         if (!this._dragging && Math.abs(x - this._pressX) < DRAG_THRESHOLD)
             return Clutter.EVENT_STOP;
         this._dragging = true;
         const monitor = Main.layoutManager.primaryMonitor;
-        const w = this._island.width || 140;
+        const totalW = this._island.width || 140;
         let nx = Math.round(this._islandX + (x - this._pressX));
-        nx = Math.max(monitor.x, Math.min(nx, monitor.x + monitor.width - w));
+        nx = Math.max(monitor.x, Math.min(nx, monitor.x + monitor.width - totalW));
         this._island.set_position(nx, this._island.y);
         return Clutter.EVENT_STOP;
     }
@@ -559,13 +713,23 @@ export default class ClockZ99Extension extends Extension {
         }
         if (button !== 1)
             return Clutter.EVENT_PROPAGATE;
+        if (this._editing && this._entry && this._entry.contains(event.get_source()))
+            return Clutter.EVENT_PROPAGATE;
         if (this._dragging) {
             this._dragging = false;
             const monitor = Main.layoutManager.primaryMonitor;
             const centerX = monitor.x + monitor.width / 2;
-            const islandCenter = this._island.x + (this._island.width || 140) / 2;
+            const tabW = (this._topTab && this._topTab.width)
+                ? this._topTab.width
+                : (this._island.width || 140);
+            const islandCenter = this._island.x + tabW / 2;
             this._settings.set_int('x-offset', Math.round(islandCenter - centerX));
             this._positionIsland(); // snap/clamp
+            return Clutter.EVENT_STOP;
+        }
+        // If already editing and clicked outside the entry on the top pill, commit
+        if (this._editing) {
+            this._commitEditor();
             return Clutter.EVENT_STOP;
         }
         // click vs double-click
@@ -615,33 +779,45 @@ export default class ClockZ99Extension extends Extension {
         this._render();
     }
 
-    // ---- quick-set editor ----
+    // ---- quick-set editor + notepad ----
     _openEditor() {
         this.pause();
         this._editing = true;
         this._label.visible = false;
         this._entry.visible = true;
         this._entry.set_text(formatTime(this._remaining));
+
         const noteEnabled = !this._settings || this._settings.get_boolean('note-enabled');
+        const bullets = !this._settings || this._settings.get_boolean('note-bullets');
         if (this._noteScroll)
             this._noteScroll.visible = noteEnabled;
         if (this._noteText && noteEnabled) {
-            this._noteText.set_text(this._note || '');
+            let initial = this._note || '';
+            if (!initial && bullets)
+                initial = BULLET_PREFIX;
+            this._noteText.set_text(initial);
         }
+
         this._applyPillStyle();
+        this._repaintBg();
         this._positionIsland();
-        if (noteEnabled && this._noteText)
+
+        if (noteEnabled && this._noteText) {
             global.stage.set_key_focus(this._noteText);
-        else
+            const len = (this._noteText.get_text() || '').length;
+            this._noteText.set_cursor_position(len);
+            this._noteText.set_selection(len, len);
+        } else {
             global.stage.set_key_focus(this._entry);
-        this._entry.clutter_text.set_selection(0, -1);
+            this._entry.clutter_text.set_selection(0, -1);
+        }
     }
 
     _commitEditor() {
         const secs = parseTimeString(this._entry.get_text());
-        const note = this._noteText ? this._noteText.get_text() : this._note;
-        this._note = note;
-        NoteStore.save(note);
+        const rawNote = this._noteText ? this._noteText.get_text() : this._note;
+        this._note = normalizeNoteForSave(rawNote);
+        NoteStore.save(this._note);
         this._closeEditor(false, false);
         if (secs !== null && secs >= 0 && secs <= 12 * 3600) {
             this._remaining = secs;
@@ -657,7 +833,7 @@ export default class ClockZ99Extension extends Extension {
         if (!this._editing && !this._entry)
             return;
         if (saveNote && this._noteText) {
-            this._note = this._noteText.get_text();
+            this._note = normalizeNoteForSave(this._noteText.get_text());
             NoteStore.save(this._note);
             this._cancelNoteSaveTimer();
         }
@@ -675,6 +851,7 @@ export default class ClockZ99Extension extends Extension {
             this._noteScroll.visible = false;
         if (this._label)
             this._label.visible = true;
+        this._repaintBg();
         if (global.stage && this._entry && global.stage.get_key_focus() === this._entry)
             global.stage.set_key_focus(null);
         if (global.stage && this._noteText && global.stage.get_key_focus() === this._noteText)
@@ -685,8 +862,10 @@ export default class ClockZ99Extension extends Extension {
         this._cancelNoteSaveTimer();
         this._noteSaveTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1200, () => {
             this._noteSaveTimer = 0;
-            if (this._noteText)
-                NoteStore.save(this._noteText.get_text());
+            if (this._noteText) {
+                this._note = normalizeNoteForSave(this._noteText.get_text());
+                NoteStore.save(this._note);
+            }
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -699,7 +878,6 @@ export default class ClockZ99Extension extends Extension {
     }
 
     // ---- timer core ----
-    // "Now" in microseconds (wall clock).
     _nowUsec() {
         return GLib.get_real_time();
     }

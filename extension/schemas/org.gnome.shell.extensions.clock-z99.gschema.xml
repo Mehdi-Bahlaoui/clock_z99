@@ -72,33 +72,38 @@
       <summary>Show notepad on double-click</summary>
       <description>Whether the multi-line notepad is shown when editing the timer.</description>
     </key>
+    <key name="note-bullets" type="b">
+      <default>true</default>
+      <summary>Auto bullet points</summary>
+      <description>Automatically start notepad lines with a bullet point (• ).</description>
+    </key>
     <key name="note-font-size" type="i">
-      <range min="10" max="24"/>
-      <default>13</default>
+      <range min="10" max="28"/>
+      <default>15</default>
       <summary>Notepad font size</summary>
       <description>Font size of the notepad text in px.</description>
     </key>
     <key name="note-min-width" type="i">
-      <range min="120" max="480"/>
+      <range min="100" max="600"/>
       <default>220</default>
-      <summary>Notepad minimum width</summary>
+      <summary>Notepad width</summary>
       <description>Minimum width of the notepad area in px.</description>
     </key>
     <key name="note-min-height" type="i">
-      <range min="40" max="160"/>
-      <default>56</default>
+      <range min="40" max="500"/>
+      <default>160</default>
       <summary>Notepad minimum height</summary>
       <description>Minimum height of the notepad area in px.</description>
     </key>
     <key name="note-max-height" type="i">
-      <range min="60" max="280"/>
-      <default>120</default>
+      <range min="60" max="600"/>
+      <default>240</default>
       <summary>Notepad maximum height</summary>
       <description>Maximum height of the notepad area before scrolling, in px.</description>
     </key>
     <key name="note-padding" type="i">
-      <range min="0" max="20"/>
-      <default>6</default>
+      <range min="0" max="32"/>
+      <default>12</default>
       <summary>Notepad padding</summary>
       <description>Inner padding of the notepad area in px.</description>
     </key>
